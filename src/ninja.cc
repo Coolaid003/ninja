@@ -130,6 +130,7 @@ struct NinjaMain : public BuildLogUser {
   int ToolTargets(const Options* options, int argc, char* argv[]);
   int ToolCommands(const Options* options, int argc, char* argv[]);
   int ToolInputs(const Options* options, int argc, char* argv[]);
+  int ToolTargetInputs(const Options* options, int argc, char* argv[]);
   int ToolClean(const Options* options, int argc, char* argv[]);
   int ToolCleanDead(const Options* options, int argc, char* argv[]);
   int ToolCompilationDatabase(const Options* options, int argc, char* argv[]);
@@ -813,6 +814,58 @@ int NinjaMain::ToolInputs(const Options* options, int argc, char* argv[]) {
   return 0;
 }
 
+
+int NinjaMain::ToolTargetInputs(const Options* options, int argc, char* argv[]) {
+  // The inputs tool uses getopt, and expects argv[0] to contain the name of
+  // the tool, i.e. "targetinputs".
+  argc++;
+  argv--;
+  optind = 1;
+  int opt;
+  const option kLongOptions[] = { { "help", no_argument, NULL, 'h' },
+                                  { NULL, 0, NULL, 0 } };
+  while ((opt = getopt_long(argc, argv, "h", kLongOptions, NULL)) != -1) {
+    switch (opt) {
+    case 'h':
+    default:
+      // clang-format off
+      printf(
+"Usage '-t targetinputs [options] [targets]\n"
+"\n"
+"List all inputs used for a set of targets. Note that this includes\n"
+"explicit, implicit and order-only inputs, but not validation ones.\n\n"
+"inputs will be listed in the format '<target>:<input>'\n\n"
+"Options:\n"
+"  -h, --help   Print this message.\n");
+      // clang-format on
+      return 1;
+    }
+  }
+  argv += optind;
+  argc -= optind;
+
+  vector<Node*> nodes;
+  string err;
+  if (!CollectTargetsFromArgs(argc, argv, &nodes, &err)) {
+    Error("%s", err.c_str());
+    return 1;
+  }
+
+  for (vector<Node*>::iterator in = nodes.begin(); in != nodes.end(); ++in)
+  {
+    std::set<Edge*> seen;
+    std::vector<std::string> result;
+    CollectInputs((*in)->in_edge(), &seen, &result);
+    std::sort(result.begin(), result.end());
+    result.erase(std::unique(result.begin(), result.end()), result.end());
+    for (size_t n = 0; n < result.size(); ++n)
+      printf("%s: %s\n", (*in)->path().c_str(), result[n].c_str());
+  }
+
+  return 0;
+}
+
+
 int NinjaMain::ToolClean(const Options* options, int argc, char* argv[]) {
   // The clean tool uses getopt, and expects argv[0] to contain the name of
   // the tool, i.e. "clean".
@@ -1093,6 +1146,8 @@ const Tool* ChooseTool(const string& tool_name) {
       Tool::RUN_AFTER_LOAD, &NinjaMain::ToolCommands },
     { "inputs", "list all inputs required to rebuild given targets",
       Tool::RUN_AFTER_LOAD, &NinjaMain::ToolInputs},
+    { "targetinputs", "list all inputs required to rebuild given targets",
+      Tool::RUN_AFTER_LOAD, &NinjaMain::ToolTargetInputs},
     { "deps", "show dependencies stored in the deps log",
       Tool::RUN_AFTER_LOGS, &NinjaMain::ToolDeps },
     { "missingdeps", "check deps log dependencies on generated files",

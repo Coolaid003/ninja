@@ -261,6 +261,9 @@ output files are out of date.
 rebuild those targets.
 _Available since Ninja 1.11._
 
+`targetinputs`:: just like `inputs`, but with a different output format.
+The list will be in the format: `target: input`
+
 `clean`:: remove built files. By default it removes all built files
 except for those created by the generator.  Adding the `-g` flag also
 removes built files created by the generator (see <<ref_rule,the rule
