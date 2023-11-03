@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "subprocess.h"
+#include "tokenpool.h"
 
 #include "test.h"
 
@@ -34,8 +35,35 @@ const char* kSimpleCommand = "cmd /c dir \\";
 const char* kSimpleCommand = "ls /";
 #endif
 
+struct TestTokenPool : public TokenPool {
+  bool Acquire()     { return false; }
+  void Reserve()     {}
+  void Release()     {}
+  void Clear()       {}
+  bool SetupClient(bool ignore_unused, bool verbose,
+                   double& max_load_average) { return false; }
+  bool SetupMaster(bool verbose,
+                   int parallelism,
+                   double max_load_average,
+                   const char* style)  { return false; }
+
+#ifdef _WIN32
+  bool _token_available;
+  void WaitForTokenAvailability(HANDLE ioport) {
+    if (_token_available)
+      // unblock GetQueuedCompletionStatus()
+      PostQueuedCompletionStatus(ioport, 0, (ULONG_PTR) this, NULL);
+  }
+  bool TokenIsAvailable(ULONG_PTR key) { return key == (ULONG_PTR) this; }
+#else
+  int _fd;
+  int GetMonitorFd() { return _fd; }
+#endif
+};
+
 struct SubprocessTest : public testing::Test {
   SubprocessSet subprocs_;
+  TestTokenPool tokens_;
 };
 
 }  // anonymous namespace
@@ -45,10 +73,12 @@ TEST_F(SubprocessTest, BadCommandStderr) {
   Subprocess* subproc = subprocs_.Add("cmd /c ninja_no_such_command");
   ASSERT_NE((Subprocess *) 0, subproc);
 
+  subprocs_.ResetTokenAvailable();
   while (!subproc->Done()) {
     // Pretend we discovered that stderr was ready for writing.
-    subprocs_.DoWork();
+    subprocs_.DoWork(NULL);
   }
+  ASSERT_FALSE(subprocs_.IsTokenAvailable());
 
   EXPECT_EQ(ExitFailure, subproc->Finish());
   EXPECT_NE("", subproc->GetOutput());
@@ -59,10 +89,12 @@ TEST_F(SubprocessTest, NoSuchCommand) {
   Subprocess* subproc = subprocs_.Add("ninja_no_such_command");
   ASSERT_NE((Subprocess *) 0, subproc);
 
+  subprocs_.ResetTokenAvailable();
   while (!subproc->Done()) {
     // Pretend we discovered that stderr was ready for writing.
-    subprocs_.DoWork();
+    subprocs_.DoWork(NULL);
   }
+  ASSERT_FALSE(subprocs_.IsTokenAvailable());
 
   EXPECT_EQ(ExitFailure, subproc->Finish());
   EXPECT_NE("", subproc->GetOutput());
@@ -78,9 +110,11 @@ TEST_F(SubprocessTest, InterruptChild) {
   Subprocess* subproc = subprocs_.Add("kill -INT $$");
   ASSERT_NE((Subprocess *) 0, subproc);
 
+  subprocs_.ResetTokenAvailable();
   while (!subproc->Done()) {
-    subprocs_.DoWork();
+    subprocs_.DoWork(NULL);
   }
+  ASSERT_FALSE(subprocs_.IsTokenAvailable());
 
   EXPECT_EQ(ExitInterrupted, subproc->Finish());
 }
@@ -90,7 +124,7 @@ TEST_F(SubprocessTest, InterruptParent) {
   ASSERT_NE((Subprocess *) 0, subproc);
 
   while (!subproc->Done()) {
-    bool interrupted = subprocs_.DoWork();
+    bool interrupted = subprocs_.DoWork(NULL);
     if (interrupted)
       return;
   }
@@ -102,9 +136,11 @@ TEST_F(SubprocessTest, InterruptChildWithSigTerm) {
   Subprocess* subproc = subprocs_.Add("kill -TERM $$");
   ASSERT_NE((Subprocess *) 0, subproc);
 
+  subprocs_.ResetTokenAvailable();
   while (!subproc->Done()) {
-    subprocs_.DoWork();
+    subprocs_.DoWork(NULL);
   }
+  ASSERT_FALSE(subprocs_.IsTokenAvailable());
 
   EXPECT_EQ(ExitInterrupted, subproc->Finish());
 }
@@ -114,7 +150,7 @@ TEST_F(SubprocessTest, InterruptParentWithSigTerm) {
   ASSERT_NE((Subprocess *) 0, subproc);
 
   while (!subproc->Done()) {
-    bool interrupted = subprocs_.DoWork();
+    bool interrupted = subprocs_.DoWork(NULL);
     if (interrupted)
       return;
   }
@@ -126,9 +162,11 @@ TEST_F(SubprocessTest, InterruptChildWithSigHup) {
   Subprocess* subproc = subprocs_.Add("kill -HUP $$");
   ASSERT_NE((Subprocess *) 0, subproc);
 
+  subprocs_.ResetTokenAvailable();
   while (!subproc->Done()) {
-    subprocs_.DoWork();
+    subprocs_.DoWork(NULL);
   }
+  ASSERT_FALSE(subprocs_.IsTokenAvailable());
 
   EXPECT_EQ(ExitInterrupted, subproc->Finish());
 }
@@ -138,7 +176,7 @@ TEST_F(SubprocessTest, InterruptParentWithSigHup) {
   ASSERT_NE((Subprocess *) 0, subproc);
 
   while (!subproc->Done()) {
-    bool interrupted = subprocs_.DoWork();
+    bool interrupted = subprocs_.DoWork(NULL);
     if (interrupted)
       return;
   }
@@ -153,9 +191,11 @@ TEST_F(SubprocessTest, Console) {
         subprocs_.Add("test -t 0 -a -t 1 -a -t 2", /*use_console=*/true);
     ASSERT_NE((Subprocess*)0, subproc);
 
+    subprocs_.ResetTokenAvailable();
     while (!subproc->Done()) {
-      subprocs_.DoWork();
+      subprocs_.DoWork(NULL);
     }
+    ASSERT_FALSE(subprocs_.IsTokenAvailable());
 
     EXPECT_EQ(ExitSuccess, subproc->Finish());
   }
@@ -167,9 +207,11 @@ TEST_F(SubprocessTest, SetWithSingle) {
   Subprocess* subproc = subprocs_.Add(kSimpleCommand);
   ASSERT_NE((Subprocess *) 0, subproc);
 
+  subprocs_.ResetTokenAvailable();
   while (!subproc->Done()) {
-    subprocs_.DoWork();
+    subprocs_.DoWork(NULL);
   }
+  ASSERT_FALSE(subprocs_.IsTokenAvailable());
   ASSERT_EQ(ExitSuccess, subproc->Finish());
   ASSERT_NE("", subproc->GetOutput());
 
@@ -200,12 +242,13 @@ TEST_F(SubprocessTest, SetWithMulti) {
     ASSERT_EQ("", processes[i]->GetOutput());
   }
 
+  subprocs_.ResetTokenAvailable();
   while (!processes[0]->Done() || !processes[1]->Done() ||
          !processes[2]->Done()) {
     ASSERT_GT(subprocs_.running_.size(), 0u);
-    subprocs_.DoWork();
+    subprocs_.DoWork(NULL);
   }
-
+  ASSERT_FALSE(subprocs_.IsTokenAvailable());
   ASSERT_EQ(0u, subprocs_.running_.size());
   ASSERT_EQ(3u, subprocs_.finished_.size());
 
@@ -237,8 +280,10 @@ TEST_F(SubprocessTest, SetWithLots) {
     ASSERT_NE((Subprocess *) 0, subproc);
     procs.push_back(subproc);
   }
+  subprocs_.ResetTokenAvailable();
   while (!subprocs_.running_.empty())
-    subprocs_.DoWork();
+    subprocs_.DoWork(NULL);
+  ASSERT_FALSE(subprocs_.IsTokenAvailable());
   for (size_t i = 0; i < procs.size(); ++i) {
     ASSERT_EQ(ExitSuccess, procs[i]->Finish());
     ASSERT_NE("", procs[i]->GetOutput());
@@ -254,10 +299,91 @@ TEST_F(SubprocessTest, SetWithLots) {
 // that stdin is closed.
 TEST_F(SubprocessTest, ReadStdin) {
   Subprocess* subproc = subprocs_.Add("cat -");
+  subprocs_.ResetTokenAvailable();
   while (!subproc->Done()) {
-    subprocs_.DoWork();
+    subprocs_.DoWork(NULL);
   }
+  ASSERT_FALSE(subprocs_.IsTokenAvailable());
   ASSERT_EQ(ExitSuccess, subproc->Finish());
   ASSERT_EQ(1u, subprocs_.finished_.size());
 }
 #endif  // _WIN32
+
+TEST_F(SubprocessTest, TokenAvailable) {
+  Subprocess* subproc = subprocs_.Add(kSimpleCommand);
+  ASSERT_NE((Subprocess *) 0, subproc);
+
+  // simulate GNUmake jobserver pipe with 1 token
+#ifdef _WIN32
+  tokens_._token_available = true;
+#else
+  int fds[2];
+  ASSERT_EQ(0u, pipe(fds));
+  tokens_._fd = fds[0];
+  ASSERT_EQ(1u, write(fds[1], "T", 1));
+#endif
+
+  subprocs_.ResetTokenAvailable();
+  subprocs_.DoWork(&tokens_);
+#ifdef _WIN32
+  tokens_._token_available = false;
+  // we need to loop here as we have no control where the token
+  // I/O completion post ends up in the queue
+  while (!subproc->Done() && !subprocs_.IsTokenAvailable()) {
+    subprocs_.DoWork(&tokens_);
+  }
+#endif
+
+  EXPECT_TRUE(subprocs_.IsTokenAvailable());
+  EXPECT_EQ(0u, subprocs_.finished_.size());
+
+  // remove token to let DoWork() wait for command again
+#ifndef _WIN32
+  char token;
+  ASSERT_EQ(1u, read(fds[0], &token, 1));
+#endif
+
+  while (!subproc->Done()) {
+    subprocs_.DoWork(&tokens_);
+  }
+
+#ifndef _WIN32
+  close(fds[1]);
+  close(fds[0]);
+#endif
+
+  EXPECT_EQ(ExitSuccess, subproc->Finish());
+  EXPECT_NE("", subproc->GetOutput());
+
+  EXPECT_EQ(1u, subprocs_.finished_.size());
+}
+
+TEST_F(SubprocessTest, TokenNotAvailable) {
+  Subprocess* subproc = subprocs_.Add(kSimpleCommand);
+  ASSERT_NE((Subprocess *) 0, subproc);
+
+  // simulate GNUmake jobserver pipe with 0 tokens
+#ifdef _WIN32
+  tokens_._token_available = false;
+#else
+  int fds[2];
+  ASSERT_EQ(0u, pipe(fds));
+  tokens_._fd = fds[0];
+#endif
+
+  subprocs_.ResetTokenAvailable();
+  while (!subproc->Done()) {
+    subprocs_.DoWork(&tokens_);
+  }
+
+#ifndef _WIN32
+  close(fds[1]);
+  close(fds[0]);
+#endif
+
+  EXPECT_FALSE(subprocs_.IsTokenAvailable());
+  EXPECT_EQ(ExitSuccess, subproc->Finish());
+  EXPECT_NE("", subproc->GetOutput());
+
+  EXPECT_EQ(1u, subprocs_.finished_.size());
+}
