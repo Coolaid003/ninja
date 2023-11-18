@@ -537,11 +537,13 @@ for name in ['build',
              'state',
              'status',
              'string_piece_util',
+             'tokenpool-gnu-make',
              'util',
              'version']:
     objs += cxx(name, variables=cxxvariables)
 if platform.is_windows():
     for name in ['subprocess-win32',
+                 'tokenpool-gnu-make-win32',
                  'includes_normalize-win32',
                  'msvc_helper-win32',
                  'msvc_helper_main-win32']:
@@ -550,7 +552,9 @@ if platform.is_windows():
         objs += cxx('minidump-win32', variables=cxxvariables)
     objs += cc('getopt')
 else:
-    objs += cxx('subprocess-posix')
+    for name in ['subprocess-posix',
+                 'tokenpool-gnu-make-posix']:
+        objs += cxx(name)
 if platform.is_aix():
     objs += cc('getopt')
 if platform.is_msvc():
@@ -608,6 +612,7 @@ for name in ['build_log_test',
              'string_piece_util_test',
              'subprocess_test',
              'test',
+             'tokenpool_test',
              'util_test']:
     objs += cxx(name, variables=cxxvariables)
 if platform.is_windows():
