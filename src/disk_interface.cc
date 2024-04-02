@@ -55,7 +55,7 @@ std::string DirName(const std::string& path) {
 
 int MakeDir(const string& path) {
 #ifdef _WIN32
-  return _wmkdir(UTF8ToWin32Wide(path).c_str());
+  return _wmkdir(UTF8ToWin32Unicode(path).c_str());
 #else
   return mkdir(path.c_str(), 0777);
 #endif
@@ -98,7 +98,7 @@ TimeStamp StatSingleFile(const std::wstring& path, std::string* err) {
     DWORD win_err = GetLastError();
     if (win_err == ERROR_FILE_NOT_FOUND || win_err == ERROR_PATH_NOT_FOUND)
       return 0;
-    *err = "GetFileAttributesEx(" + Win32WideToUTF8(path) +
+    *err = "GetFileAttributesEx(" + Win32UnicodeToUTF8(path) +
            "): " + GetLastErrorString();
     return -1;
   }
@@ -134,7 +134,7 @@ bool StatAllFilesInDir(const std::wstring& dir,
     if (win_err == ERROR_FILE_NOT_FOUND || win_err == ERROR_PATH_NOT_FOUND ||
         win_err == ERROR_DIRECTORY)
       return true;
-    *err = "FindFirstFileExW(" + Win32WideToUTF8(dir) +
+    *err = "FindFirstFileExW(" + Win32UnicodeToUTF8(dir) +
            "): " + GetLastErrorString();
     return false;
   }
@@ -205,7 +205,7 @@ TimeStamp SystemDiskInterface::Stat(const string& path, string* err) const {
         "Stat(" + path + ": Filename longer than " + std::to_string(MAX_PATH);
     return -1;
   }
-  return StatSingleFile(UTF8ToWin32Wide(path), err);
+  return StatSingleFile(UTF8ToWin32Unicode(path), err);
 #else
 #ifdef __USE_LARGEFILE64
   struct stat64 st;
@@ -240,7 +240,7 @@ TimeStamp SystemDiskInterface::Stat(const string& path, string* err) const {
 bool SystemDiskInterface::WriteFile(const string& path,
                                     const string& contents) {
 #ifdef _WIN32
-  FILE* fp = _wfopen(UTF8ToWin32Wide(path).c_str(), L"w");
+  FILE* fp = _wfopen(UTF8ToWin32Unicode(path).c_str(), L"w");
 #else   // !_WIN32
   FILE* fp = fopen(path.c_str(), "w");
 #endif  // !_WIN32
@@ -289,7 +289,7 @@ FileReader::Status SystemDiskInterface::ReadFile(const string& path,
 
 int SystemDiskInterface::RemoveFile(const string& path) {
 #ifdef _WIN32
-  std::wstring native_path = UTF8ToWin32Wide(path);
+  std::wstring native_path = UTF8ToWin32Unicode(path);
   DWORD attributes = GetFileAttributesW(native_path.c_str());
   if (attributes == INVALID_FILE_ATTRIBUTES) {
     DWORD win_err = GetLastError();
@@ -399,7 +399,7 @@ TimeStamp RealDiskInterface::Stat(const string& path, string* err) const {
         "Stat(" + path + ": Filename longer than " + std::to_string(MAX_PATH);
     return -1;
   }
-  std::wstring native_path = UTF8ToWin32Wide(path);
+  std::wstring native_path = UTF8ToWin32Unicode(path);
   if (!use_cache_)
     return StatSingleFile(native_path, err);
 
