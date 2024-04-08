@@ -84,9 +84,10 @@ struct Options {
 /// The Ninja main() loads up a series of data structures; various tools need
 /// to poke into these, so store them as fields on an object.
 struct NinjaMain : public BuildLogUser {
-  NinjaMain(const char* ninja_command, const BuildConfig& config) :
-      ninja_command_(ninja_command), config_(config),
-      build_log_(disk_interface_), start_time_millis_(GetTimeMillis()) {}
+  NinjaMain(const char* ninja_command, const BuildConfig& config)
+      : ninja_command_(ninja_command), config_(config),
+        build_log_(disk_interface_), deps_log_(disk_interface_),
+        start_time_millis_(GetTimeMillis()) {}
 
   /// Command line used to run Ninja.
   const char* ninja_command_;
