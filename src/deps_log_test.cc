@@ -32,16 +32,16 @@ const char kTestFilename[] = "DepsLogTest-tempfile";
 struct DepsLogTest : public testing::Test {
   virtual void SetUp() {
     // In case a crashing test left a stale file behind.
-    unlink(kTestFilename);
+    disk_interface_.RemoveFile(kTestFilename);
   }
-  virtual void TearDown() {
-    unlink(kTestFilename);
-  }
+  virtual void TearDown() { disk_interface_.RemoveFile(kTestFilename); }
+
+  SystemDiskInterface disk_interface_;
 };
 
 TEST_F(DepsLogTest, WriteRead) {
   State state1;
-  DepsLog log1;
+  DepsLog log1(disk_interface_);
   string err;
   EXPECT_TRUE(log1.OpenForWrite(kTestFilename, &err));
   ASSERT_EQ("", err);
@@ -68,7 +68,7 @@ TEST_F(DepsLogTest, WriteRead) {
   log1.Close();
 
   State state2;
-  DepsLog log2;
+  DepsLog log2(disk_interface_);
   EXPECT_TRUE(log2.Load(kTestFilename, &state2, &err));
   ASSERT_EQ("", err);
 
@@ -93,7 +93,7 @@ TEST_F(DepsLogTest, LotsOfDeps) {
   const int kNumDeps = 100000;  // More than 64k.
 
   State state1;
-  DepsLog log1;
+  DepsLog log1(disk_interface_);
   string err;
   EXPECT_TRUE(log1.OpenForWrite(kTestFilename, &err));
   ASSERT_EQ("", err);
@@ -114,7 +114,7 @@ TEST_F(DepsLogTest, LotsOfDeps) {
   log1.Close();
 
   State state2;
-  DepsLog log2;
+  DepsLog log2(disk_interface_);
   EXPECT_TRUE(log2.Load(kTestFilename, &state2, &err));
   ASSERT_EQ("", err);
 
@@ -128,7 +128,7 @@ TEST_F(DepsLogTest, DoubleEntry) {
   int file_size;
   {
     State state;
-    DepsLog log;
+    DepsLog log(disk_interface_);
     string err;
     EXPECT_TRUE(log.OpenForWrite(kTestFilename, &err));
     ASSERT_EQ("", err);
@@ -152,7 +152,7 @@ TEST_F(DepsLogTest, DoubleEntry) {
   // Now reload the file, and read the same deps.
   {
     State state;
-    DepsLog log;
+    DepsLog log(disk_interface_);
     string err;
     EXPECT_TRUE(log.Load(kTestFilename, &state, &err));
 
@@ -190,7 +190,7 @@ TEST_F(DepsLogTest, Recompact) {
   {
     State state;
     ASSERT_NO_FATAL_FAILURE(AssertParse(&state, kManifest));
-    DepsLog log;
+    DepsLog log(disk_interface_);
     string err;
     ASSERT_TRUE(log.OpenForWrite(kTestFilename, &err));
     ASSERT_EQ("", err);
@@ -222,7 +222,7 @@ TEST_F(DepsLogTest, Recompact) {
   {
     State state;
     ASSERT_NO_FATAL_FAILURE(AssertParse(&state, kManifest));
-    DepsLog log;
+    DepsLog log(disk_interface_);
     string err;
     ASSERT_TRUE(log.Load(kTestFilename, &state, &err));
 
@@ -252,7 +252,7 @@ TEST_F(DepsLogTest, Recompact) {
   {
     State state;
     ASSERT_NO_FATAL_FAILURE(AssertParse(&state, kManifest));
-    DepsLog log;
+    DepsLog log(disk_interface_);
     string err;
     ASSERT_TRUE(log.Load(kTestFilename, &state, &err));
 
@@ -306,7 +306,7 @@ TEST_F(DepsLogTest, Recompact) {
   {
     State state;
     // Intentionally not parsing kManifest here.
-    DepsLog log;
+    DepsLog log(disk_interface_);
     string err;
     ASSERT_TRUE(log.Load(kTestFilename, &state, &err));
 
@@ -362,7 +362,7 @@ TEST_F(DepsLogTest, InvalidHeader) {
   };
   for (size_t i = 0; i < sizeof(kInvalidHeaders) / sizeof(kInvalidHeaders[0]);
        ++i) {
-    FILE* deps_log = fopen(kTestFilename, "wb");
+    FILE* deps_log = disk_interface_.OpenFile(kTestFilename, "wb");
     ASSERT_TRUE(deps_log != NULL);
     ASSERT_EQ(
         strlen(kInvalidHeaders[i]),
@@ -370,7 +370,7 @@ TEST_F(DepsLogTest, InvalidHeader) {
     ASSERT_EQ(0 ,fclose(deps_log));
 
     string err;
-    DepsLog log;
+    DepsLog log(disk_interface_);
     State state;
     ASSERT_TRUE(log.Load(kTestFilename, &state, &err));
     EXPECT_EQ("bad deps log signature or version; starting over", err);
@@ -382,7 +382,7 @@ TEST_F(DepsLogTest, Truncated) {
   // Create a file with some entries.
   {
     State state;
-    DepsLog log;
+    DepsLog log(disk_interface_);
     string err;
     EXPECT_TRUE(log.OpenForWrite(kTestFilename, &err));
     ASSERT_EQ("", err);
@@ -419,7 +419,7 @@ TEST_F(DepsLogTest, Truncated) {
     ASSERT_TRUE(Truncate(kTestFilename, size, &err));
 
     State state;
-    DepsLog log;
+    DepsLog log(disk_interface_);
     EXPECT_TRUE(log.Load(kTestFilename, &state, &err));
     if (!err.empty()) {
       // At some point the log will be so short as to be unparsable.
@@ -446,7 +446,7 @@ TEST_F(DepsLogTest, TruncatedRecovery) {
   // Create a file with some entries.
   {
     State state;
-    DepsLog log;
+    DepsLog log(disk_interface_);
     string err;
     EXPECT_TRUE(log.OpenForWrite(kTestFilename, &err));
     ASSERT_EQ("", err);
@@ -480,7 +480,7 @@ TEST_F(DepsLogTest, TruncatedRecovery) {
   // Load the file again, add an entry.
   {
     State state;
-    DepsLog log;
+    DepsLog log(disk_interface_);
     string err;
     EXPECT_TRUE(log.Load(kTestFilename, &state, &err));
     ASSERT_EQ("premature end of file; recovering", err);
@@ -505,7 +505,7 @@ TEST_F(DepsLogTest, TruncatedRecovery) {
   // entry doesn't break things.
   {
     State state;
-    DepsLog log;
+    DepsLog log(disk_interface_);
     string err;
     EXPECT_TRUE(log.Load(kTestFilename, &state, &err));
 
@@ -517,7 +517,7 @@ TEST_F(DepsLogTest, TruncatedRecovery) {
 
 TEST_F(DepsLogTest, ReverseDepsNodes) {
   State state;
-  DepsLog log;
+  DepsLog log(disk_interface_);
   string err;
   EXPECT_TRUE(log.OpenForWrite(kTestFilename, &err));
   ASSERT_EQ("", err);
